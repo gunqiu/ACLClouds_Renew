@@ -142,7 +142,7 @@ class ACLCloudsAPI:
         if xsrf:
             decoded = unquote(xsrf)
             self.session.headers["x-xsrf-token"] = decoded
-            log(f"x-xsrf-token 已设置: {decoded[:30]}...")
+            log(f"x-xsrf-token 已设置: {decoded[:6]}***（已脱敏）")
 
     def _get_captcha_token(self):
         log("GET 登录页，获取 XSRF-TOKEN ...")
@@ -162,11 +162,11 @@ class ACLCloudsAPI:
         log(f"  -> HTTP {cr.status_code}")
         if cr.status_code == 200:
             data = cr.json()
-            log(f"  -> 响应: {data}")
+            log(f"  -> 响应: {{'passed': {data.get('passed')}, 'token': '{str(data.get('token', ''))[:4]}***（已脱敏）'}}")
             self._set_xsrf()
             token = data.get("token") or data.get("captcha_token")
             if token and data.get("passed"):
-                log(f"captcha 通过，token: {str(token)[:20]}...")
+                log(f"captcha 通过，token: {str(token)[:4]}***（已脱敏）")
                 return str(token)
             elif token:
                 log_warn("captcha passed=false，仍尝试用 token 登录")
