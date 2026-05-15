@@ -51,11 +51,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "当前 workflow: ${{ github.workflow }}"
-          gh api repos/${{ github.repository }}/actions/workflows/${{ github.workflow }}/runs \
+          WORKFLOW_ID=$(gh api repos/${{ github.repository }}/actions/workflows \
+            --jq '.workflows[] | select(.name == "${{ github.workflow }}") | .id')
+          echo "Workflow ID: $WORKFLOW_ID"
+          gh api "repos/${{ github.repository }}/actions/workflows/${WORKFLOW_ID}/runs" \
             --paginate \
             --jq '.workflow_runs[2:][] | .id' \
             | while read id; do
                 echo "Deleting run $id"
-                gh api -X DELETE repos/${{ github.repository }}/actions/runs/$id
+                gh api -X DELETE "repos/${{ github.repository }}/actions/runs/$id"
               done
