@@ -348,7 +348,9 @@ def run():
             if new_expires:
                 new_remaining = parse_expires(new_expires)
                 log(f"[{name}] 续期后剩余天数: {new_remaining:.2f} 天（新过期时间: {new_expires}）")
-            renewed_list.append(f"{name}（续期前剩余 {remaining:.1f} 天）")
+                renewed_list.append(f"{name}（续期前剩余 {remaining:.1f} 天，续期后剩余 {new_remaining:.1f} 天）")
+            else:
+                renewed_list.append(f"{name}（续期前剩余 {remaining:.1f} 天）")
         except Exception as e:
             log_error(f"[{name}] 续期失败: {e}")
             failed_list.append(f"{name}（{str(e)[:80]}）")
