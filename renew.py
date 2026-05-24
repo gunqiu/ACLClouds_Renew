@@ -6,6 +6,7 @@ ACLClouds 自动续期脚本 (Playwright 全程浏览器版 · 多账号)
   ACCOUNT2_EMAIL / ACCOUNT2_PASSWORD
   ACCOUNT3_EMAIL / ACCOUNT3_PASSWORD（可选）
 """
+
 import os
 import re
 import sys
@@ -15,6 +16,7 @@ import traceback
 from urllib.request import Request, urlopen
 
 # ── 代理配置 ──────────────────────────────────────────────
+# v2ray/Xray 本地 SOCKS5 代理
 PROXY_SERVER = "socks5://127.0.0.1:10808"
 
 # ── 推送凭据（全局共用） ──────────────────────────────────
@@ -30,7 +32,7 @@ LOGIN_URL = f"{BASE_URL}/auth/login"
 # ── 读取多账号列表 ────────────────────────────────────────
 def load_accounts():
     accounts = []
-    for i in range(1, 4):
+    for i in range(1, 4):           # 支持 1~3 个账号
         email    = os.environ.get(f"ACCOUNT{i}_EMAIL", "").strip()
         password = os.environ.get(f"ACCOUNT{i}_PASSWORD", "").strip()
         if email and password:
@@ -63,24 +65,16 @@ def get_proxy_ip():
     except Exception as e:
         return f"获取失败({e})"
 
-# ── 推送函数（已修复：TG 不走代理，必发送成功） ───────────
+# ── 推送函数 ──────────────────────────────────────────────
 def send_tg(text: str):
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
         return
     try:
-        import requests
-        proxies = {"http": None, "https": None}
-        url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
-        data = {
-            "chat_id": TG_CHAT_ID,
-            "text": text,
-            "parse_mode": "HTML"
-        }
-        response = requests.post(url, json=data, proxies=proxies, timeout=15)
-        if response.status_code == 200:
-            log("TG 推送成功 ✅")
-        else:
-            log_warn(f"TG 推送失败: HTTP {response.status_code}")
+        body = json.dumps({"chat_id": TG_CHAT_ID, "text": text, "parse_mode": "HTML"}).encode()
+        req = Request(f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage",
+                      data=body, headers={"Content-Type": "application/json"})
+        urlopen(req, timeout=15)
+        log("TG 推送成功")
     except Exception as e:
         log_warn(f"TG 推送失败: {e}")
 
@@ -143,6 +137,7 @@ def screenshot(page, name: str):
 
 # ── 单账号续期 ────────────────────────────────────────────
 def run_account(account: dict):
+    """对单个账号执行续期，返回 (renewed_list, skipped_list, failed_list)"""
     from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
     idx      = account["index"]
@@ -164,7 +159,9 @@ def run_account(account: dict):
         )
         ctx = browser.new_context(
             viewport={"width": 1280, "height": 800},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/148.0.0.0 Safari/537.36",
             locale="zh-CN",
             record_video_dir="screenshots/",
             record_video_size={"width": 1280, "height": 800},
@@ -172,11 +169,13 @@ def run_account(account: dict):
         page = ctx.new_page()
 
         try:
+            # ── 1. 打开登录页 ─────────────────────────────
             log(f"[{tag}] 导航到登录页: {LOGIN_URL}")
             page.goto(LOGIN_URL, timeout=60000)
             page.wait_for_load_state("networkidle", timeout=30000)
             screenshot(page, f"acct{idx}_01_login_page")
 
+            # ── 2. 填写登录表单 ───────────────────────────
             log(f"[{tag}] 填写登录表单...")
             email_selectors = [
                 "input[type='email']", "input[name='user']", "input[name='email']",
@@ -207,6 +206,7 @@ def run_account(account: dict):
 
             screenshot(page, f"acct{idx}_02_form_filled")
 
+            # ── 3. captcha ────────────────────────────────
             log(f"[{tag}] 点击 captcha 复选框...")
             page.click("div.auth-captcha-inner", timeout=10000)
             try:
@@ -218,6 +218,7 @@ def run_account(account: dict):
                 log_warn(f"[{tag}] captcha 未检测到 verified，继续提交")
             screenshot(page, f"acct{idx}_02b_captcha")
 
+            # ── 4. 提交登录 ───────────────────────────────
             for sel in ["button[type='submit']", "button:has-text('Login')",
                         "button:has-text('登录')", "button:has-text('Sign in')",
                         "input[type='submit']"]:
@@ -239,6 +240,7 @@ def run_account(account: dict):
 
             screenshot(page, f"acct{idx}_04_after_login")
 
+            # ── 5. 获取项目列表 ───────────────────────────
             result = page.evaluate("""async () => {
                 const r = await fetch('/api/client', {headers: {'Accept': 'application/json'}});
                 return {status: r.status, body: await r.text()};
@@ -255,6 +257,7 @@ def run_account(account: dict):
                 ctx.close(); browser.close()
                 return renewed_list, skipped_list, failed_list
 
+            # ── 6. 逐项目续期 ────────────────────────────
             for project in projects:
                 name        = project.get("name", "未知项目")
                 identifier  = project.get("identifier", "")
@@ -274,8 +277,15 @@ def run_account(account: dict):
                 try:
                     renew_url = f"/api/client/servers/{identifier}/upgrade/renew"
                     renew_result = page.evaluate(f"""async () => {{
-                        const xsrf = decodeURIComponent(document.cookie.split('; ').find(c => c.startsWith('XSRF-TOKEN='))?.split('=')[1] || '');
-                        const r = await fetch('{renew_url}', {{method: 'POST', headers: {{'Accept': 'application/json', 'X-XSRF-TOKEN': xsrf}}}});
+                        const xsrf = decodeURIComponent(
+                            document.cookie.split('; ')
+                            .find(c => c.startsWith('XSRF-TOKEN='))
+                            ?.split('=')[1] || ''
+                        );
+                        const r = await fetch('{renew_url}', {{
+                            method: 'POST',
+                            headers: {{'Accept': 'application/json', 'X-XSRF-TOKEN': xsrf}}
+                        }});
                         return {{status: r.status, body: await r.text()}};
                     }}""")
 
@@ -293,7 +303,8 @@ def run_account(account: dict):
                                 break
                         if new_expires:
                             new_remaining = parse_expires(new_expires)
-                            renewed_list.append(f"{tag} · {name}（{remaining:.1f}天 → {new_remaining:.1f}天）")
+                            renewed_list.append(
+                                f"{tag} · {name}（{remaining:.1f}天 → {new_remaining:.1f}天）")
                         else:
                             renewed_list.append(f"{tag} · {name}（续期前 {remaining:.1f} 天）")
                     else:
@@ -321,6 +332,7 @@ def run_account(account: dict):
 
     return renewed_list, skipped_list, failed_list
 
+
 # ── 主入口 ────────────────────────────────────────────────
 if __name__ == "__main__":
     accounts = load_accounts()
@@ -345,6 +357,7 @@ if __name__ == "__main__":
             traceback.print_exc()
             all_failed.append(f"账号{account['index']}({account['email']}) · 顶层异常: {str(ex)[:100]}")
 
+    # ── 汇总推送 ──────────────────────────────────────────
     log("=" * 50)
     log(f"续期成功: {len(all_renewed)} 个")
     log(f"无需续期: {len(all_skipped)} 个")
