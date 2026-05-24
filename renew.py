@@ -19,6 +19,10 @@ TG_CHAT_ID        = os.environ.get("TG_CHAT_ID", "").strip()
 WXPUSHER_APPTOKEN = os.environ.get("WXPUSHER_APPTOKEN", "").strip()
 WXPUSHER_UID      = os.environ.get("WXPUSHER_UID", "").strip()
 
+# ── 代理配置 ──────────────────────────────────────────────
+# v2ray/Xray 本地 SOCKS5 代理（与 workflow 中 Xray 启动的端口一致）
+PROXY_SERVER = "socks5://127.0.0.1:10808"
+
 RENEW_THRESHOLD_DAYS = 2
 BASE_URL  = "https://dash.aclclouds.com"
 LOGIN_URL = f"{BASE_URL}/auth/login"
@@ -37,6 +41,18 @@ def get_outbound_ip():
     except Exception as e:
         return f"ip=获取失败({e})"
     return "ip=未知"
+
+def get_proxy_ip():
+    """通过 SOCKS5 代理获取出口 IP"""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["curl", "-s", "--max-time", "5", "--socks5", "127.0.0.1:10808", "ifconfig.me"],
+            capture_output=True, text=True, timeout=10
+        )
+        return result.stdout.strip() if result.returncode == 0 else "获取失败"
+    except Exception as e:
+        return f"获取失败({e})"
 
 # ── 推送函数 ──────────────────────────────────────────────
 def send_tg(text: str):
@@ -118,12 +134,16 @@ def screenshot(page, name: str):
 def run_with_browser():
     from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
-    log(f"[网络] 出口 IP: {get_outbound_ip()}")
+    log(f"[网络] 直连出口 IP: {get_outbound_ip()}")
+    log(f"[网络] 代理出口 IP: {get_proxy_ip()}")
 
     with sync_playwright() as p:
         # 启用录屏
         os.makedirs("screenshots", exist_ok=True)
-        browser = p.chromium.launch(args=["--no-sandbox", "--disable-setuid-sandbox"])
+        browser = p.chromium.launch(
+            args=["--no-sandbox", "--disable-setuid-sandbox"],
+            proxy={"server": PROXY_SERVER},
+        )
         ctx = browser.new_context(
             viewport={"width": 1280, "height": 800},
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
