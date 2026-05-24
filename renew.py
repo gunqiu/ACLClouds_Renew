@@ -187,7 +187,7 @@ class ACLCloudsAPI:
     def _get_captcha_token(self):
         log(f"[网络] 出口 IP: {get_outbound_ip()}")
         log("GET 登录页，获取 XSRF-TOKEN ...")
-        r = self.session.get(LOGIN_URL, timeout=20)
+        r = self.session.get(LOGIN_URL, timeout=60)
         r.raise_for_status()
         self._set_xsrf()
         log(f"登录页 cookie: {mask_cookies(dict(self.session.cookies))}")
@@ -201,7 +201,7 @@ class ACLCloudsAPI:
             "elapsed_ms":      45000,
         }
         log(f"POST {captcha_url} ...")
-        cr = self.session.post(captcha_url, json=fake_behavior, timeout=20)
+        cr = self.session.post(captcha_url, json=fake_behavior, timeout=60)
         log(f"  -> HTTP {cr.status_code}")
         if cr.status_code == 200:
             data = cr.json()
@@ -230,7 +230,7 @@ class ACLCloudsAPI:
             "captcha_token":  captcha_token,
         }
         log(f"POST {LOGIN_URL}")
-        r = self.session.post(LOGIN_URL, json=payload, headers={"Content-Type": "application/json"}, timeout=20)
+        r = self.session.post(LOGIN_URL, json=payload, headers={"Content-Type": "application/json"}, timeout=60)
         log(f"登录响应: HTTP {r.status_code}")
         log(f"登录响应头: {dict(r.headers)}")
         log(f"登录响应 Set-Cookie: {r.headers.get('Set-Cookie', '无')}")
@@ -263,7 +263,7 @@ class ACLCloudsAPI:
         log(f"GET {url}")
         log(f"  → 请求 cookie: {mask_cookies(dict(self.session.cookies))}")
         log(f"  → 请求头 x-xsrf-token: {self.session.headers.get('x-xsrf-token', '未设置')[:10]}***")
-        r = self.session.get(url, timeout=20)
+        r = self.session.get(url, timeout=60)
         log(f"  → HTTP {r.status_code}")
         if r.status_code != 200:
             log_warn(f"  → 响应体: {r.text[:500]}")
@@ -288,7 +288,7 @@ class ACLCloudsAPI:
         url = f"{API_BASE}/client/servers/{identifier}/upgrade/renew"
         log(f"POST {url}")
         log(f"  → 请求 cookie: {mask_cookies(dict(self.session.cookies))}")
-        r = self.session.post(url, timeout=20)
+        r = self.session.post(url, timeout=60)
         log(f"  → HTTP {r.status_code}")
         log(f"  → 响应体: {r.text[:300]}")
 
